@@ -68,7 +68,17 @@ class m5core2_power {
       current_1320mA,
   };
 
-  m5core2_power();
+  m5core2_power(
+#ifdef ARDUINO
+    TwoWire& bus_handle = Wire1
+#else
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+    i2c_master_bus_handle_t bus_handle = nullptr
+#else
+    i2c_port_t = I2C_NUM_1
+#endif
+#endif
+  );
   void initialize();
   void lcd_dim(float brightness);
   bool battery_state();
@@ -132,7 +142,14 @@ class m5core2_power {
   uint32_t Read24bit(uint8_t Addr);
   uint32_t Read32bit(uint8_t Addr);
   void ReadBuff(uint8_t Addr, uint8_t Size, uint8_t *Buff);
+#ifdef ARDUINO
+    TwoWire& m_i2c_bus;
+#else
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+  i2c_master_bus_handle_t m_i2c_bus;
   i2c_master_dev_handle_t m_i2c;
+#else
+    i2c_port_t m_i2c_bus;
+#endif
 #endif
 };

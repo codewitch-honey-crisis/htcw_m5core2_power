@@ -23,35 +23,53 @@ static uint8_t calc_voltage_data(uint16_t value, uint16_t maxv, uint16_t minv,
     if (value > minv) data = (value - minv) / step;
     return data;
 }
-m5core2_power::m5core2_power() {}
+m5core2_power::m5core2_power(
+#ifdef ARDUINO
+    TwoWire& wire
+#else
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+    i2c_master_bus_handle_t bus_handle
+#else
+    i2c_port_t port
+#endif
+#endif
+)
+#ifdef ARDUINO
+    : m_i2c_bus(wire)
+#else
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+    : m_i2c_bus(bus_handle)
+#else
+    : m_i2c_bus(port)
+#endif
+#endif
+ {}
 
 void m5core2_power::initialize() {
 #ifdef ARDUINO
-    Wire1.begin(21, 22);
-    Wire1.setClock(400000);
+    m_i2c_bus.begin(21, 22);
+    m_i2c_bus.setClock(400000);
 #else
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
-    i2c_master_bus_config_t i2c_mst_config;
-    memset(&i2c_mst_config,0,sizeof(i2c_mst_config));
-    i2c_mst_config.clk_source = I2C_CLK_SRC_DEFAULT;
-    i2c_mst_config.i2c_port = I2C_NUM_1;
-    i2c_mst_config.scl_io_num = (gpio_num_t)22;
-    i2c_mst_config.sda_io_num = (gpio_num_t)21;
-    i2c_mst_config.glitch_ignore_cnt = 7;
-    i2c_mst_config.flags.enable_internal_pullup = true;
 
-    i2c_master_bus_handle_t bus_handle;
-    if(ESP_OK!=i2c_new_master_bus(&i2c_mst_config, &bus_handle)) {
-        return;
+    if(m_i2c_bus==nullptr) {
+        i2c_master_bus_config_t i2c_mst_config;
+        memset(&i2c_mst_config,0,sizeof(i2c_mst_config));
+        i2c_mst_config.clk_source = I2C_CLK_SRC_DEFAULT;
+        i2c_mst_config.i2c_port = I2C_NUM_1;
+        i2c_mst_config.scl_io_num = (gpio_num_t)22;
+        i2c_mst_config.sda_io_num = (gpio_num_t)21;
+        i2c_mst_config.glitch_ignore_cnt = 7;
+        i2c_mst_config.flags.enable_internal_pullup = true;
+
+        i2c_new_master_bus(&i2c_mst_config, &m_i2c_bus);
     }
-
     i2c_device_config_t dev_cfg;
     memset(&dev_cfg,0,sizeof(dev_cfg));
     dev_cfg.dev_addr_length = I2C_ADDR_BIT_LEN_7;
     dev_cfg.device_address = 0x34;
     dev_cfg.scl_speed_hz = 400*1000;
-    if(ESP_OK!=i2c_master_bus_add_device(bus_handle, &dev_cfg, &m_i2c)) {
-        i2c_del_master_bus(bus_handle);
+    if(ESP_OK!=i2c_master_bus_add_device(m_i2c_bus, &dev_cfg, &m_i2c)) {
         return;
     }
 #else
@@ -63,11 +81,11 @@ void m5core2_power::initialize() {
     cfg.sda_pullup_en = true;
     cfg.scl_pullup_en = true;
     cfg.master.clk_speed = 400 * 1000;
-    esp_err_t res = i2c_param_config(I2C_NUM_1, &cfg);
+    esp_err_t res = i2c_param_config(m_i2c_bus, &cfg);
     if (res != ESP_OK) {
         return;
     }
-    res = i2c_driver_install(I2C_NUM_1, cfg.mode, 0, 0, 0);
+    res = i2c_driver_install(m_i2c_bus, cfg.mode, 0, 0, 0);
     if (res != ESP_OK) {
         return;
     }
@@ -140,10 +158,10 @@ void m5core2_power::set_peripheral_power(bool value) {
 }
 void m5core2_power::Write1Byte(uint8_t Addr, uint8_t Data) {
 #ifdef ARDUINO
-    Wire1.beginTransmission(0x34);
-    Wire1.write(Addr);
-    Wire1.write(Data);
-    Wire1.endTransmission();
+    m_i2c_bus.beginTransmission(0x34);
+    m_i2c_bus.write(Addr);
+    m_i2c_bus.write(Data);
+    m_i2c_bus.endTransmission();
 #else
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
     i2c_master_transmit(m_i2c,&Addr,1,-1);
@@ -155,7 +173,7 @@ void m5core2_power::Write1Byte(uint8_t Addr, uint8_t Data) {
     i2c_master_write_byte(handle, Addr, true);
     i2c_master_write_byte(handle, Data, true);
     i2c_master_stop(handle);
-    i2c_master_cmd_begin(I2C_NUM_1, handle, pdMS_TO_TICKS(1000));
+    i2c_master_cmd_begin(m_i2c_bus, handle, pdMS_TO_TICKS(1000));
     i2c_cmd_link_delete(handle);
 #endif
 #endif
@@ -163,11 +181,11 @@ void m5core2_power::Write1Byte(uint8_t Addr, uint8_t Data) {
 
 uint8_t m5core2_power::Read8bit(uint8_t Addr) {
 #ifdef ARDUINO
-    Wire1.beginTransmission(0x34);
-    Wire1.write(Addr);
-    Wire1.endTransmission();
-    Wire1.requestFrom(0x34, 1);
-    return Wire1.read();
+    m_i2c_bus.beginTransmission(0x34);
+    m_i2c_bus.write(Addr);
+    m_i2c_bus.endTransmission();
+    m_i2c_bus.requestFrom(0x34, 1);
+    return m_i2c_bus.read();
 #else
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
     i2c_master_transmit(m_i2c,&Addr,1,-1);
@@ -185,7 +203,7 @@ uint8_t m5core2_power::Read8bit(uint8_t Addr) {
     i2c_master_write_byte(handle, (0x34 << 1) | I2C_MASTER_READ, true);
     i2c_master_read_byte(handle, &res, I2C_MASTER_NACK);
     i2c_master_stop(handle);
-    i2c_master_cmd_begin(I2C_NUM_1, handle, pdMS_TO_TICKS(1000));
+    i2c_master_cmd_begin(m_i2c_bus, handle, pdMS_TO_TICKS(1000));
     i2c_cmd_link_delete(handle);
     return res;
 #endif
@@ -211,13 +229,13 @@ uint16_t m5core2_power::Read13Bit(uint8_t Addr) {
 uint16_t m5core2_power::Read16bit(uint8_t Addr) {
 #ifdef ARDUINO
     uint16_t ReData = 0;
-    Wire1.beginTransmission(0x34);
-    Wire1.write(Addr);
-    Wire1.endTransmission();
-    Wire1.requestFrom(0x34, 2);
+    m_i2c_bus.beginTransmission(0x34);
+    m_i2c_bus.write(Addr);
+    m_i2c_bus.endTransmission();
+    m_i2c_bus.requestFrom(0x34, 2);
     for (int i = 0; i < 2; i++) {
         ReData <<= 8;
-        ReData |= Wire1.read();
+        ReData |= m_i2c_bus.read();
     }
     return ReData;
 #else
@@ -234,7 +252,7 @@ uint16_t m5core2_power::Read16bit(uint8_t Addr) {
     i2c_master_write_byte(handle, (0x34 << 1) | I2C_MASTER_READ, true);
     i2c_master_read(handle, res, sizeof(res), I2C_MASTER_NACK);
     i2c_master_stop(handle);
-    i2c_master_cmd_begin(I2C_NUM_1, handle, pdMS_TO_TICKS(1000));
+    i2c_master_cmd_begin(m_i2c_bus, handle, pdMS_TO_TICKS(1000));
     i2c_cmd_link_delete(handle);
 #endif
     uint16_t res16 = 0;
@@ -249,13 +267,13 @@ uint16_t m5core2_power::Read16bit(uint8_t Addr) {
 uint32_t m5core2_power::Read24bit(uint8_t Addr) {
 #ifdef ARDUINO
     uint32_t ReData = 0;
-    Wire1.beginTransmission(0x34);
-    Wire1.write(Addr);
-    Wire1.endTransmission();
-    Wire1.requestFrom(0x34, 3);
+    m_i2c_bus.beginTransmission(0x34);
+    m_i2c_bus.write(Addr);
+    m_i2c_bus.endTransmission();
+    m_i2c_bus.requestFrom(0x34, 3);
     for (int i = 0; i < 3; i++) {
         ReData <<= 8;
-        ReData |= Wire1.read();
+        ReData |= m_i2c_bus.read();
     }
     return ReData;
 #else
@@ -272,7 +290,7 @@ uint32_t m5core2_power::Read24bit(uint8_t Addr) {
     i2c_master_write_byte(handle, (0x34 << 1) | I2C_MASTER_READ, true);
     i2c_master_read(handle, res, sizeof(res), I2C_MASTER_NACK);
     i2c_master_stop(handle);
-    i2c_master_cmd_begin(I2C_NUM_1, handle, pdMS_TO_TICKS(1000));
+    i2c_master_cmd_begin(m_i2c_bus, handle, pdMS_TO_TICKS(1000));
     i2c_cmd_link_delete(handle);
 #endif
     uint32_t res32 = 0;
@@ -287,13 +305,13 @@ uint32_t m5core2_power::Read24bit(uint8_t Addr) {
 uint32_t m5core2_power::Read32bit(uint8_t Addr) {
 #ifdef ARDUINO
     uint32_t ReData = 0;
-    Wire1.beginTransmission(0x34);
-    Wire1.write(Addr);
-    Wire1.endTransmission();
-    Wire1.requestFrom(0x34, 4);
+    m_i2c_bus.beginTransmission(0x34);
+    m_i2c_bus.write(Addr);
+    m_i2c_bus.endTransmission();
+    m_i2c_bus.requestFrom(0x34, 4);
     for (int i = 0; i < 4; i++) {
         ReData <<= 8;
-        ReData |= Wire1.read();
+        ReData |= m_i2c_bus.read();
     }
     return ReData;
 #else
@@ -310,7 +328,7 @@ uint32_t m5core2_power::Read32bit(uint8_t Addr) {
     i2c_master_write_byte(handle, (0x34 << 1) | I2C_MASTER_READ, true);
     i2c_master_read(handle, res, sizeof(res), I2C_MASTER_NACK);
     i2c_master_stop(handle);
-    i2c_master_cmd_begin(I2C_NUM_1, handle, pdMS_TO_TICKS(1000));
+    i2c_master_cmd_begin(m_i2c_bus, handle, pdMS_TO_TICKS(1000));
     i2c_cmd_link_delete(handle);
 #endif
     uint32_t res32 = 0;
@@ -324,12 +342,12 @@ uint32_t m5core2_power::Read32bit(uint8_t Addr) {
 
 void m5core2_power::ReadBuff(uint8_t Addr, uint8_t Size, uint8_t *Buff) {
 #ifdef ARDUINO
-    Wire1.beginTransmission(0x34);
-    Wire1.write(Addr);
-    Wire1.endTransmission();
-    Wire1.requestFrom(0x34, (int)Size);
+    m_i2c_bus.beginTransmission(0x34);
+    m_i2c_bus.write(Addr);
+    m_i2c_bus.endTransmission();
+    m_i2c_bus.requestFrom(0x34, (int)Size);
     for (int i = 0; i < Size; i++) {
-        *(Buff + i) = Wire1.read();
+        *(Buff + i) = m_i2c_bus.read();
     }
 #else
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
@@ -344,7 +362,7 @@ void m5core2_power::ReadBuff(uint8_t Addr, uint8_t Size, uint8_t *Buff) {
     i2c_master_write_byte(handle, (0x34 << 1) | I2C_MASTER_READ, true);
     i2c_master_read(handle, Buff, Size, I2C_MASTER_NACK);
     i2c_master_stop(handle);
-    i2c_master_cmd_begin(I2C_NUM_1, handle, pdMS_TO_TICKS(1000));
+    i2c_master_cmd_begin(m_i2c_bus, handle, pdMS_TO_TICKS(1000));
     i2c_cmd_link_delete(handle);
 #endif
 #endif
@@ -439,11 +457,11 @@ void m5core2_power::restore_from_light_sleep(void) {
 
 uint8_t m5core2_power::warning_level_raw(void) {
     return Read8bit(0x47) & 0x1;
-    /*Wire1.beginTransmission(0x34);
-    Wire1.write(0x47);
-    Wire1.endTransmission();
-    Wire1.requestFrom(0x34, 1);
-    uint8_t buf = Wire1.read();
+    /*m_i2c_bus.beginTransmission(0x34);
+    m_i2c_bus.write(0x47);
+    m_i2c_bus.endTransmission();
+    m_i2c_bus.requestFrom(0x34, 1);
+    uint8_t buf = m_i2c_bus.read();
     return (buf & 0x01);*/
 }
 

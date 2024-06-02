@@ -30,8 +30,10 @@ SOFTWARE.
 #else 
 #ifdef ESP_PLATFORM
 #include <stdint.h>
-//#include <driver/i2c.h>
-//#include <soc/gpio_sig_map.h>
+#include <esp_idf_version.h>
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+#include <driver/i2c_master.h>
+#endif
 #else
   #error "This driver requires an M5Stack Core2"
 #endif
@@ -67,7 +69,7 @@ class m5core2_power {
   };
 
   m5core2_power();
-  void initialize(bool init_i2c = true);
+  void initialize();
   void lcd_dim(float brightness);
   bool battery_state();
 
@@ -130,4 +132,7 @@ class m5core2_power {
   uint32_t Read24bit(uint8_t Addr);
   uint32_t Read32bit(uint8_t Addr);
   void ReadBuff(uint8_t Addr, uint8_t Size, uint8_t *Buff);
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+  i2c_master_dev_handle_t m_i2c;
+#endif
 };

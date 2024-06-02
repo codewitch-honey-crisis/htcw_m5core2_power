@@ -2,7 +2,12 @@
 #ifdef ESP_PLATFORM
 #include <m5core2_power.hpp>
 #ifndef ARDUINO
+#include <esp_idf_version.h>
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+#include <driver/i2c_master.h>
+#else
 #include <driver/i2c.h>
+#endif
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <inttypes.h>
@@ -20,11 +25,35 @@ static uint8_t calc_voltage_data(uint16_t value, uint16_t maxv, uint16_t minv,
 }
 m5core2_power::m5core2_power() {}
 
-void m5core2_power::initialize(bool init_i2c) {
-    if(init_i2c) {
+void m5core2_power::initialize() {
 #ifdef ARDUINO
     Wire1.begin(21, 22);
     Wire1.setClock(400000);
+#else
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+    i2c_master_bus_config_t i2c_mst_config;
+    memset(&i2c_mst_config,0,sizeof(i2c_mst_config));
+    i2c_mst_config.clk_source = I2C_CLK_SRC_DEFAULT;
+    i2c_mst_config.i2c_port = I2C_NUM_1;
+    i2c_mst_config.scl_io_num = (gpio_num_t)22;
+    i2c_mst_config.sda_io_num = (gpio_num_t)21;
+    i2c_mst_config.glitch_ignore_cnt = 7;
+    i2c_mst_config.flags.enable_internal_pullup = true;
+
+    i2c_master_bus_handle_t bus_handle;
+    if(ESP_OK!=i2c_new_master_bus(&i2c_mst_config, &bus_handle)) {
+        return;
+    }
+
+    i2c_device_config_t dev_cfg;
+    memset(&dev_cfg,0,sizeof(dev_cfg));
+    dev_cfg.dev_addr_length = I2C_ADDR_BIT_LEN_7;
+    dev_cfg.device_address = 0x34;
+    dev_cfg.scl_speed_hz = 400*1000;
+    if(ESP_OK!=i2c_master_bus_add_device(bus_handle, &dev_cfg, &m_i2c)) {
+        i2c_del_master_bus(bus_handle);
+        return;
+    }
 #else
     i2c_config_t cfg;
     memset(&cfg, 0, sizeof(cfg));
@@ -43,7 +72,8 @@ void m5core2_power::initialize(bool init_i2c) {
         return;
     }
 #endif
-    }
+#endif
+    
     // m5core2_power 30H
     Write1Byte(0x30, (Read8bit(0x30) & 0x04) | 0X02);
 
@@ -115,6 +145,10 @@ void m5core2_power::Write1Byte(uint8_t Addr, uint8_t Data) {
     Wire1.write(Data);
     Wire1.endTransmission();
 #else
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+    i2c_master_transmit(m_i2c,&Addr,1,-1);
+    i2c_master_transmit(m_i2c,&Data,1,-1);
+#else
     i2c_cmd_handle_t handle = i2c_cmd_link_create();
     i2c_master_start(handle);
     i2c_master_write_byte(handle, 0x34 << 1 | I2C_MASTER_WRITE, 1);
@@ -123,6 +157,7 @@ void m5core2_power::Write1Byte(uint8_t Addr, uint8_t Data) {
     i2c_master_stop(handle);
     i2c_master_cmd_begin(I2C_NUM_1, handle, pdMS_TO_TICKS(1000));
     i2c_cmd_link_delete(handle);
+#endif
 #endif
 }
 
@@ -133,6 +168,12 @@ uint8_t m5core2_power::Read8bit(uint8_t Addr) {
     Wire1.endTransmission();
     Wire1.requestFrom(0x34, 1);
     return Wire1.read();
+#else
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+    i2c_master_transmit(m_i2c,&Addr,1,-1);
+    uint8_t res;
+    i2c_master_receive(m_i2c,&res,1,-1);
+    return res;
 #else
     i2c_cmd_handle_t handle = i2c_cmd_link_create();
     i2c_master_start(handle);
@@ -147,6 +188,7 @@ uint8_t m5core2_power::Read8bit(uint8_t Addr) {
     i2c_master_cmd_begin(I2C_NUM_1, handle, pdMS_TO_TICKS(1000));
     i2c_cmd_link_delete(handle);
     return res;
+#endif
 #endif
 }
 
@@ -179,18 +221,22 @@ uint16_t m5core2_power::Read16bit(uint8_t Addr) {
     }
     return ReData;
 #else
+    uint8_t res[2];
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+    i2c_master_transmit(m_i2c,&Addr,1,-1);
+    i2c_master_receive(m_i2c,res,sizeof(res),-1);
+#else
     i2c_cmd_handle_t handle = i2c_cmd_link_create();
     i2c_master_start(handle);
     i2c_master_write_byte(handle, 0x34 << 1 | I2C_MASTER_WRITE, true);
     i2c_master_write_byte(handle, Addr, true);
-    // i2c_master_stop(handle);
-    uint8_t res[2];
     i2c_master_start(handle);
     i2c_master_write_byte(handle, (0x34 << 1) | I2C_MASTER_READ, true);
     i2c_master_read(handle, res, sizeof(res), I2C_MASTER_NACK);
     i2c_master_stop(handle);
     i2c_master_cmd_begin(I2C_NUM_1, handle, pdMS_TO_TICKS(1000));
     i2c_cmd_link_delete(handle);
+#endif
     uint16_t res16 = 0;
     for (int i = 0; i < 2; ++i) {
         res16 <<= 8;
@@ -213,17 +259,22 @@ uint32_t m5core2_power::Read24bit(uint8_t Addr) {
     }
     return ReData;
 #else
+    uint8_t res[3];
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+    i2c_master_transmit(m_i2c,&Addr,1,-1);
+    i2c_master_receive(m_i2c,res,sizeof(res),-1);
+#else
     i2c_cmd_handle_t handle = i2c_cmd_link_create();
     i2c_master_start(handle);
     i2c_master_write_byte(handle, 0x34 << 1 | I2C_MASTER_WRITE, true);
     i2c_master_write_byte(handle, Addr, true);
-    uint8_t res[3];
     i2c_master_start(handle);
     i2c_master_write_byte(handle, (0x34 << 1) | I2C_MASTER_READ, true);
     i2c_master_read(handle, res, sizeof(res), I2C_MASTER_NACK);
     i2c_master_stop(handle);
     i2c_master_cmd_begin(I2C_NUM_1, handle, pdMS_TO_TICKS(1000));
     i2c_cmd_link_delete(handle);
+#endif
     uint32_t res32 = 0;
     for (int i = 0; i < 3; ++i) {
         res32 <<= 8;
@@ -246,17 +297,22 @@ uint32_t m5core2_power::Read32bit(uint8_t Addr) {
     }
     return ReData;
 #else
+    uint8_t res[4];
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+    i2c_master_transmit(m_i2c,&Addr,1,-1);
+    i2c_master_receive(m_i2c,res,sizeof(res),-1);
+#else
     i2c_cmd_handle_t handle = i2c_cmd_link_create();
     i2c_master_start(handle);
     i2c_master_write_byte(handle, 0x34 << 1 | I2C_MASTER_WRITE, true);
     i2c_master_write_byte(handle, Addr, true);
-    uint8_t res[4];
     i2c_master_start(handle);
     i2c_master_write_byte(handle, (0x34 << 1) | I2C_MASTER_READ, true);
     i2c_master_read(handle, res, sizeof(res), I2C_MASTER_NACK);
     i2c_master_stop(handle);
     i2c_master_cmd_begin(I2C_NUM_1, handle, pdMS_TO_TICKS(1000));
     i2c_cmd_link_delete(handle);
+#endif
     uint32_t res32 = 0;
     for (int i = 0; i < 4; ++i) {
         res32 <<= 8;
@@ -276,6 +332,10 @@ void m5core2_power::ReadBuff(uint8_t Addr, uint8_t Size, uint8_t *Buff) {
         *(Buff + i) = Wire1.read();
     }
 #else
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+    i2c_master_transmit(m_i2c,&Addr,1,-1);
+    i2c_master_receive(m_i2c,Buff,Size,-1);
+#else
     i2c_cmd_handle_t handle = i2c_cmd_link_create();
     i2c_master_start(handle);
     i2c_master_write_byte(handle, 0x34 << 1 | I2C_MASTER_WRITE, true);
@@ -286,6 +346,7 @@ void m5core2_power::ReadBuff(uint8_t Addr, uint8_t Size, uint8_t *Buff) {
     i2c_master_stop(handle);
     i2c_master_cmd_begin(I2C_NUM_1, handle, pdMS_TO_TICKS(1000));
     i2c_cmd_link_delete(handle);
+#endif
 #endif
 }
 

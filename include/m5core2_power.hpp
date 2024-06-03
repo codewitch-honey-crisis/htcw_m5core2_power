@@ -33,6 +33,8 @@ SOFTWARE.
 #include <esp_idf_version.h>
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
 #include <driver/i2c_master.h>
+#else
+#include <driver/i2c.h>
 #endif
 #else
   #error "This driver requires an M5Stack Core2"

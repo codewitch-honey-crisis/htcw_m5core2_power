@@ -1,6 +1,6 @@
 {
     "name": "htcw_m5core2_power",
-    "version": "0.1.2",
+    "version": "0.1.3",
     "description": "Provides support for the M5 Stack Core2 AXP192 power module",
     "keywords": ["m5stack","core2","m5-stack","m5","AXP192","power","battery"],
     "authors": {

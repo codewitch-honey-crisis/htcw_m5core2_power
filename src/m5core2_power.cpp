@@ -164,8 +164,8 @@ void m5core2_power::Write1Byte(uint8_t Addr, uint8_t Data) {
     m_i2c_bus.endTransmission();
 #else
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
-    i2c_master_transmit(m_i2c,&Addr,1,-1);
-    i2c_master_transmit(m_i2c,&Data,1,-1);
+    uint8_t buf[] = {Addr,Data};
+    i2c_master_transmit(m_i2c,buf,sizeof(buf),-1);
 #else
     i2c_cmd_handle_t handle = i2c_cmd_link_create();
     i2c_master_start(handle);
@@ -188,9 +188,8 @@ uint8_t m5core2_power::Read8bit(uint8_t Addr) {
     return m_i2c_bus.read();
 #else
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
-    i2c_master_transmit(m_i2c,&Addr,1,-1);
     uint8_t res;
-    i2c_master_receive(m_i2c,&res,1,-1);
+    i2c_master_transmit_receive(m_i2c,&Addr,1,&res,1,1000);
     return res;
 #else
     i2c_cmd_handle_t handle = i2c_cmd_link_create();
@@ -241,8 +240,7 @@ uint16_t m5core2_power::Read16bit(uint8_t Addr) {
 #else
     uint8_t res[2];
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
-    i2c_master_transmit(m_i2c,&Addr,1,-1);
-    i2c_master_receive(m_i2c,res,sizeof(res),-1);
+    i2c_master_transmit_receive(m_i2c,&Addr,1,res,sizeof(res),1000);
 #else
     i2c_cmd_handle_t handle = i2c_cmd_link_create();
     i2c_master_start(handle);
@@ -279,8 +277,7 @@ uint32_t m5core2_power::Read24bit(uint8_t Addr) {
 #else
     uint8_t res[3];
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
-    i2c_master_transmit(m_i2c,&Addr,1,-1);
-    i2c_master_receive(m_i2c,res,sizeof(res),-1);
+    i2c_master_transmit_receive(m_i2c,&Addr,1,res,sizeof(res),1000);
 #else
     i2c_cmd_handle_t handle = i2c_cmd_link_create();
     i2c_master_start(handle);
@@ -317,8 +314,7 @@ uint32_t m5core2_power::Read32bit(uint8_t Addr) {
 #else
     uint8_t res[4];
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
-    i2c_master_transmit(m_i2c,&Addr,1,-1);
-    i2c_master_receive(m_i2c,res,sizeof(res),-1);
+    i2c_master_transmit_receive(m_i2c,&Addr,1,res,sizeof(res),1000);
 #else
     i2c_cmd_handle_t handle = i2c_cmd_link_create();
     i2c_master_start(handle);
@@ -351,8 +347,7 @@ void m5core2_power::ReadBuff(uint8_t Addr, uint8_t Size, uint8_t *Buff) {
     }
 #else
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
-    i2c_master_transmit(m_i2c,&Addr,1,-1);
-    i2c_master_receive(m_i2c,Buff,Size,-1);
+    i2c_master_transmit_receive(m_i2c,&Addr,1,Buff,Size,1000);
 #else
     i2c_cmd_handle_t handle = i2c_cmd_link_create();
     i2c_master_start(handle);
